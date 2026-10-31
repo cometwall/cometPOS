@@ -1,0 +1,6 @@
+@cometPOS_HostAddress = http://localhost:5135
+
+GET {{cometPOS_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
