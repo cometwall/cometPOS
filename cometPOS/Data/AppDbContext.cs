@@ -12,6 +12,8 @@ namespace cometPOS.Data
         public DbSet<Sucursal> Sucursales => Set<Sucursal>();
         public DbSet<Usuario> Usuarios => Set<Usuario>();
 
+        public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.Entity<Sucursal>()
@@ -20,6 +22,14 @@ namespace cometPOS.Data
             modelBuilder.Entity<Usuario>()
                 .HasIndex(u => u.Email)
                 .IsUnique();
+            modelBuilder.Entity<RefreshToken>()
+                .HasIndex(r => r.TokenHash)
+                .IsUnique();
+            modelBuilder.Entity<RefreshToken>()
+                .HasOne(r => r.Usuario)
+                .WithMany()
+                .HasForeignKey(r => r.UsuarioId)
+                .OnDelete(DeleteBehavior.Cascade);
         }
     }
 }

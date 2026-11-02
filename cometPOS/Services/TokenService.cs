@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Text;
 using cometPOS.Models;
 using Microsoft.IdentityModel.Tokens;
+using System.Security.Cryptography;
 
 namespace cometPOS.Services
 {
@@ -43,6 +44,19 @@ namespace cometPOS.Services
                 signingCredentials: credenciales);
 
             return new JwtSecurityTokenHandler().WriteToken(token);
+        }
+
+        public (string Token, string Hash, DateTime Expira) GenerarRefreshToken()
+        {
+            var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+            var dias = int.Parse(_config["Jwt:RefreshExpireDays"] ?? "7");
+            return (token, HashearToken(token), DateTime.UtcNow.AddDays(dias));
+        }
+
+        public string HashearToken(string token)
+        {
+            var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(token));
+            return Convert.ToHexString(bytes);
         }
     }
 }

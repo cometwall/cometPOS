@@ -4,11 +4,13 @@ using Microsoft.EntityFrameworkCore;
 using cometPOS.Data;
 using cometPOS.Models;
 using cometPOS.DTOs;
+using Microsoft.AspNetCore.Authorization;
 
 namespace cometPOS.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class SucursalesController : ControllerBase
 {
     private readonly AppDbContext _context;
@@ -19,25 +21,26 @@ public class SucursalesController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<Sucursal>>> ObtenerSucursales() 
+    public async Task<ActionResult<IEnumerable<SucursalDto>>> ObtenerSucursales() 
     {
         var sucursales = await _context.Sucursales.ToListAsync();
 
         return Ok(sucursales);
     }
     [HttpGet("{id}")]
-    public async Task<ActionResult<Sucursal>> ObtenerSucursal(int id)
+    public async Task<ActionResult<SucursalDto>> ObtenerSucursal(int id)
     {
-        var sucursal = await _context.Sucursales.Select(s => new SucursalDto { 
+        var sucursal = await _context.Sucursales.Where(s => s.Id == id).Select(s => new SucursalDto { 
             Id = s.Id, Nombre = s.Nombre, Codigo = s.Codigo, Direccion = s.Direccion,
             Telefono = s.Telefono, Activa = s.Activa, FechaCreacion = s.FechaCreacion
-        }).ToListAsync();
+        }).FirstOrDefaultAsync();
         if (sucursal == null)
             return NotFound();
 
         return Ok(sucursal);
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpPost("Crear")]
     public async Task<ActionResult<SucursalDto>> CrearSucursal(CrearSucursalDto dto)
     {
@@ -72,6 +75,7 @@ public class SucursalesController : ControllerBase
             resultado);
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpPut("actualizar/{id}")]
     public async Task<IActionResult> ActualizarSucursal(int id, ActualizarSucursalDto dto)
     {
@@ -89,6 +93,7 @@ public class SucursalesController : ControllerBase
         return NoContent();
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpDelete("eliminar/{id}")]
     public async Task<IActionResult> DesactivarSucursal(int id)
     {
