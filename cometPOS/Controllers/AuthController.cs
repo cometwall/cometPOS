@@ -6,6 +6,7 @@ using cometPOS.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace cometPOS.Controllers;
 
@@ -54,6 +55,7 @@ public class AuthController : ControllerBase
         return StatusCode(StatusCodes.Status201Created, new { usuario.Id, usuario.Email });
     }
 
+    [EnableRateLimiting("login")]
     [HttpPost("login")]
     public async Task<ActionResult<AuthRespuestaDto>> Login(LoginDto dto)
     {
@@ -82,7 +84,7 @@ public class AuthController : ControllerBase
 
         if (guardado == null)
             return Unauthorized("Refresh token incalido");
-
+        //El valor de FechaRenovacion indica que el token ya fue usado para renovar, por lo que no se puede volver a usar
         if (guardado.FechaRenovacion != null)
         {
             var activos = await _context.RefreshTokens
