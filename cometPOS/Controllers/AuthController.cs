@@ -17,11 +17,13 @@ public class AuthController : ControllerBase
     private static readonly string[] RolesValidos = { "Admin", "Cajero" };
     private readonly AppDbContext _context;
     private readonly ITokenService _tokenService;
+    private readonly IConfiguration _config;
     private readonly PasswordHasher<Usuario> _hasher = new();
-    public AuthController(AppDbContext context, ITokenService tokenService)
+    public AuthController(AppDbContext context, ITokenService tokenService, IConfiguration config)
     {
         _context = context;
         _tokenService = tokenService;
+        _config = config;
     }
     
     [Authorize(Roles = "Admin")]
@@ -66,14 +68,50 @@ public class AuthController : ControllerBase
         if (usuario == null || !usuario.Activo)
             return Unauthorized("Credenciales invalidas.");
 
+        if (usuario.BloqueadoHasta.HasValue && usuario.BloqueadoHasta > DateTime.UtcNow)
+            return Unauthorized("Credenciales invalidas.");
+
         var resultado = _hasher.VerifyHashedPassword(usuario, usuario.PasswordHash, dto.Password);
 
         if (resultado == PasswordVerificationResult.Failed)
+        {
+            var maxIntentos = _config.GetValue("Lockout:MaxIntentos", 5);
+            var minutos = _config.GetValue("Lockout:MinutosBloqueo", 15);
+            var hastaBloqueo = DateTime.UtcNow.AddMinutes(minutos);
+
+            await _context.Usuarios
+                .Where(u => u.Id == usuario.Id)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(u => u.BloqueadoHasta,
+                        u => u.IntentosFallidos + 1 >= maxIntentos ? hastaBloqueo : u.BloqueadoHasta)
+                    .SetProperty(u => u.IntentosFallidos,
+                        u => u.IntentosFallidos + 1 >= maxIntentos ? 0 : u.IntentosFallidos + 1));
+
+            var bloqueado = await _context.Usuarios
+                .AnyAsync(u => u.Id == usuario.Id && u.BloqueadoHasta > DateTime.UtcNow);
+
+            if (bloqueado)
+            {
+                await _context.RefreshTokens
+                    .Where(r => r.UsuarioId == usuario.Id && r.FechaRenovacion == null)
+                    .ExecuteUpdateAsync(s => s.SetProperty(r => r.FechaRenovacion, DateTime.UtcNow));
+            }
+
             return Unauthorized("Credenciales invalidas.");
+        }
+        if (usuario.IntentosFallidos > 0 || usuario.BloqueadoHasta != null)
+        {
+            await _context.Usuarios
+                .Where(u => u.Id == usuario.Id)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(u => u.IntentosFallidos, 0)
+                    .SetProperty(u => u.BloqueadoHasta, (DateTime?)null));
+        }
 
         return Ok(await EmitirTokenAsync(usuario));
     }
 
+    [EnableRateLimiting("refresh")]
     [HttpPost("refresh")]
     public async Task<ActionResult<AuthRespuestaDto>> Refresh(RefreshTokenDto dto)
     {

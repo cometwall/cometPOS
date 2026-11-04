@@ -18,5 +18,7 @@ namespace cometPOS.Models
         public Sucursal? Sucursal { get; set; }
         public bool Activo { get; set; } = true;
         public DateTime FechaCreacion { get; set; } = DateTime.UtcNow;
+        public int IntentosFallidos { get; set; }
+        public DateTime? BloqueadoHasta { get; set; }
     }
 }
