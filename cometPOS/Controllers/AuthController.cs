@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
+using System.Security.Claims;
 
 namespace cometPOS.Controllers;
 
@@ -160,6 +161,36 @@ public class AuthController : ControllerBase
             guardado.FechaRenovacion = DateTime.UtcNow;
             await _context.SaveChangesAsync();
         }
+        return NoContent();
+    }
+
+    [Authorize]
+    [EnableRateLimiting("login")]
+    [HttpPost("cambiar-password")]
+    public async Task<IActionResult> CambiarPassword(CambiarPasswordDto dto)
+    {
+        var idClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!int.TryParse(idClaim, out var usuarioId))
+            return Unauthorized();
+
+        var usuario = await _context.Usuarios.FindAsync(usuarioId);
+        if (usuario == null || !usuario.Activo)
+            return Unauthorized();
+
+        var verificacion = _hasher.VerifyHashedPassword(usuario, usuario.PasswordHash, dto.PasswordActual);
+        if (verificacion == PasswordVerificationResult.Failed)
+            return BadRequest("La contraseña actual es incorrecta.");
+
+        if (dto.PasswordActual == dto.PasswordNueva)
+            return BadRequest("La contraseña nueva debe de ser distinta de la actual.");
+
+        usuario.PasswordHash = _hasher.HashPassword(usuario, dto.PasswordNueva);
+        await _context.SaveChangesAsync();
+
+        await _context.RefreshTokens
+            .Where(r => r.UsuarioId == usuarioId && r.FechaRenovacion == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.FechaRenovacion, DateTime.UtcNow));
+
         return NoContent();
     }
 

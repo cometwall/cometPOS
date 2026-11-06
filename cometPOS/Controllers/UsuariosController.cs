@@ -7,6 +7,8 @@ using cometPOS.DTOs;
 using System.Linq.Expressions;
 using cometPOS.Models;
 using System.Linq.Expressions;
+using Microsoft.AspNetCore.Identity;
+using System.Security.Claims;
 
 namespace cometPOS.Controllers
 {
@@ -27,6 +29,11 @@ namespace cometPOS.Controllers
             BloqueadoHasta = u.BloqueadoHasta,
             FechaCreacion = u.FechaCreacion
         };
+
+        private readonly PasswordHasher<Usuario> _hasher = new();
+
+        private int? UsuarioActualId() =>
+            int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id: null;
 
         private Task<int> RevocarRefreshTokensAsync(int usuarioId) =>
             _context.RefreshTokens
@@ -87,8 +94,12 @@ namespace cometPOS.Controllers
                 return BadRequest("La sucursal indicada no existe o esta inactiva.");
 
             var usuario = await _context.Usuarios.FindAsync(id);
+
             if (usuario == null)
                 return NotFound();
+
+            if (usuario.Rol == "Admin" && dto.Rol != "Admin" && await EsUltimoAdminActivoAsync(id))
+                return Conflict("No se puede cambiar el rol Admin al ultimo administrador activo.");
 
             usuario.Nombre = dto.Nombre;
             usuario.Rol = dto.Rol;
@@ -101,6 +112,10 @@ namespace cometPOS.Controllers
         [HttpPost("{id}/desactivar")]
         public async Task<IActionResult> Desactivar(int id)
         {
+            if (UsuarioActualId() == id)
+                return Conflict("No puedes desactivar tu propia cuenta.");
+            if (await EsUltimoAdminActivoAsync(id))
+                return Conflict("No se puede desactivar al ultimo administrador activo.");
             var usuario = await _context.Usuarios.FindAsync(id);
             if (usuario == null)
                 return NotFound();
@@ -120,6 +135,36 @@ namespace cometPOS.Controllers
                 .ExecuteUpdateAsync(s => s.SetProperty(u => u.Activo, true));
 
             return filas == 0 ? NotFound() : NoContent();
+        }
+
+        [HttpPost("{id}/resetear-password")]
+        public async Task<IActionResult> ResetearPassword(int id, ResetearPasswordDto dto)
+        {
+            var usuario = await _context.Usuarios.FindAsync(id);
+            if (usuario == null)
+                return NotFound();
+
+            usuario.PasswordHash = _hasher.HashPassword(usuario, dto.PasswordNueva);
+            usuario.IntentosFallidos = 0;
+            usuario.BloqueadoHasta = null;
+            await _context.SaveChangesAsync();
+
+            await RevocarRefreshTokensAsync(id);
+
+            return NoContent();
+        }
+
+        private async Task<bool> EsUltimoAdminActivoAsync(int usuarioId)
+        {
+            var esAdminActivo = await _context.Usuarios.AnyAsync(u => u.Id == usuarioId && u.Rol == "Admin" && u.Activo);
+
+            if (!esAdminActivo)
+                return false;
+
+            var otrosAdmin = await _context.Usuarios
+                .CountAsync(u => u.Id != usuarioId && u.Rol == "Admin" && u.Activo);
+
+            return otrosAdmin == 0;
         }
     }
 }
