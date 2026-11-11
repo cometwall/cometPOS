@@ -18,9 +18,16 @@ builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(
-        builder.Configuration.GetConnectionString("DefaultConnection")));
+builder.Services.AddHttpContextAccessor();
+
+builder.Services.AddSingleton<AuditInterceptor>();
+
+builder.Services.AddDbContext<AppDbContext>((sp, options) =>
+    options
+    .UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"))
+    .AddInterceptors(sp.GetRequiredService<AuditInterceptor>()));
+
+builder.Services.AddScoped<IAuditService, AuditService>();
 
 var jwtKey = builder.Configuration["Jwt:Key"]
     ?? throw new InvalidOperationException("Falta la configuracion Jwt:Key");
@@ -43,6 +50,16 @@ builder.Services
     });
 
 builder.Services.AddAuthorization();
+
+var origenesPermitidos = builder.Configuration.GetSection("Cors:Origenes").Get<string[]>() ?? [];
+
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+        policy.WithOrigins(origenesPermitidos)
+              .AllowAnyHeader()
+              .AllowAnyMethod());
+});
 
 builder.Services.AddScoped<ITokenService, TokenService>();
 
@@ -111,6 +128,8 @@ if (app.Environment.IsDevelopment())
 app.UseForwardedHeaders();
 
 app.UseHttpsRedirection();
+
+app.UseCors();
 
 app.UseRateLimiter();
 app.UseAuthentication();

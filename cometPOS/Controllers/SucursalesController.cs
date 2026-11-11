@@ -5,6 +5,7 @@ using cometPOS.Data;
 using cometPOS.Models;
 using cometPOS.DTOs;
 using Microsoft.AspNetCore.Authorization;
+using cometPOS.Services;
 
 namespace cometPOS.Controllers;
 
@@ -15,6 +16,22 @@ public class SucursalesController : ControllerBase
 {
     private readonly AppDbContext _context;
 
+    private int EmpresaId => User.EmpresaId() ?? 0;
+
+    private IQueryable<Sucursal> SucursalesDeMiEmpresa() =>
+        _context.Sucursales.Where(s => s.EmpresaId == EmpresaId);
+
+    private static SucursalDto ASucursalDto(Sucursal s) => new()
+    {
+        Id = s.Id,
+        Nombre = s.Nombre,
+        Codigo = s.Codigo,
+        Direccion = s.Direccion,
+        Telefono = s.Telefono,
+        Activa = s.Activa,
+        FechaCreacion = s.FechaCreacion
+    };
+
     public SucursalesController(AppDbContext context)
     {
         _context = context;
@@ -23,14 +40,14 @@ public class SucursalesController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<IEnumerable<SucursalDto>>> ObtenerSucursales() 
     {
-        var sucursales = await _context.Sucursales.ToListAsync();
+        var sucursales = await SucursalesDeMiEmpresa().ToListAsync();
 
-        return Ok(sucursales);
+        return Ok(sucursales.Select(ASucursalDto));
     }
     [HttpGet("{id}")]
     public async Task<ActionResult<SucursalDto>> ObtenerSucursal(int id)
     {
-        var sucursal = await _context.Sucursales.Where(s => s.Id == id).Select(s => new SucursalDto { 
+        var sucursal = await SucursalesDeMiEmpresa().Where(s => s.Id == id).Select(s => new SucursalDto { 
             Id = s.Id, Nombre = s.Nombre, Codigo = s.Codigo, Direccion = s.Direccion,
             Telefono = s.Telefono, Activa = s.Activa, FechaCreacion = s.FechaCreacion
         }).FirstOrDefaultAsync();
@@ -40,7 +57,7 @@ public class SucursalesController : ControllerBase
         return Ok(sucursal);
     }
 
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "SuperAdmin")]
     [HttpPost("Crear")]
     public async Task<ActionResult<SucursalDto>> CrearSucursal(CrearSucursalDto dto)
     {
@@ -53,6 +70,7 @@ public class SucursalesController : ControllerBase
             Codigo = codigo,
             Direccion = dto.Direccion,
             Telefono = dto.Telefono,
+            EmpresaId = EmpresaId,
             Activa = true
         };
         _context.Sucursales.Add(sucursal);
@@ -75,11 +93,16 @@ public class SucursalesController : ControllerBase
             resultado);
     }
 
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "SuperAdmin,Admin")]
     [HttpPut("actualizar/{id}")]
     public async Task<IActionResult> ActualizarSucursal(int id, ActualizarSucursalDto dto)
     {
-        var sucursal = await _context.Sucursales.FindAsync(id);
+        var esSuperAdmin = User.EsSuperAdmin();
+
+        if (!esSuperAdmin && User.SucursalId() != id)
+            return Forbid();
+
+        var sucursal = await SucursalesDeMiEmpresa().FirstOrDefaultAsync(s => s.Id == id);
 
         if (sucursal == null)
             return NotFound();
@@ -87,17 +110,18 @@ public class SucursalesController : ControllerBase
         sucursal.Nombre = dto.Nombre;
         sucursal.Direccion = dto.Direccion;
         sucursal.Telefono = dto.Telefono;
-        sucursal.Activa = dto.Activa;
+        if (esSuperAdmin)
+            sucursal.Activa = dto.Activa;
 
         await _context.SaveChangesAsync();
         return NoContent();
     }
 
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "SuperAdmin")]
     [HttpDelete("eliminar/{id}")]
     public async Task<IActionResult> DesactivarSucursal(int id)
     {
-        var sucursal = await _context.Sucursales.FindAsync(id);
+        var sucursal = await SucursalesDeMiEmpresa().FirstOrDefaultAsync(s => s.Id == id);
 
         if (sucursal == null)
             return NotFound();
@@ -109,14 +133,14 @@ public class SucursalesController : ControllerBase
     }
 
     [HttpGet("Inactivas")]
-    public async Task<ActionResult<IEnumerable<Sucursal>>> ObtenerSucursales([FromQuery] bool incluirInactivas = false)
+    public async Task<ActionResult<IEnumerable<SucursalDto>>> ObtenerSucursales([FromQuery] bool incluirInactivas = false)
     {
-        var query = _context.Sucursales.AsQueryable();
+        var query = SucursalesDeMiEmpresa();
 
         if (!incluirInactivas)
             query = query.Where(s => s.Activa);
 
-        return Ok(await query.ToListAsync());
+        return Ok((await query.ToListAsync()).Select(ASucursalDto));
     }
 
 }

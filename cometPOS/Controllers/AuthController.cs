@@ -19,28 +19,37 @@ public class AuthController : ControllerBase
     private readonly AppDbContext _context;
     private readonly ITokenService _tokenService;
     private readonly IConfiguration _config;
+    private readonly IAuditService _auditService;
     private readonly PasswordHasher<Usuario> _hasher = new();
-    public AuthController(AppDbContext context, ITokenService tokenService, IConfiguration config)
+    public AuthController(AppDbContext context, ITokenService tokenService, IConfiguration config, IAuditService auditService)
     {
         _context = context;
         _tokenService = tokenService;
         _config = config;
+        _auditService = auditService;
     }
     
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "SuperAdmin,Admin")]
     [HttpPost("registro")]
     public async Task<ActionResult> Registrar(RegistrarUsuarioDto dto)
     {
-        if (!RolesValidos.Contains(dto.Rol))
-            return BadRequest($"Rol invalido. Valores permitidos: {string.Join(", ", RolesValidos)}.");
+        var esSuperAdmin = User.EsSuperAdmin();
+        var empresaId = User.EmpresaId() ?? 0;
+        var rolesPermitidos = esSuperAdmin ? RolesValidos : new[] { "Cajero" };
+
+        if (!rolesPermitidos.Contains(dto.Rol))
+            return BadRequest($"Rol invalido. Valores permitidos: {string.Join(", ", rolesPermitidos)}.");
 
         var email = dto.Email.Trim().ToLowerInvariant();
 
         if (await _context.Usuarios.AnyAsync(u => u.Email == email))
             return Conflict("Ya existe un usuario con ese correo.");
 
-        if (dto.SucursalId.HasValue &&
-            !await _context.Sucursales.AnyAsync(s => s.Id == dto.SucursalId && s.Activa))
+        var sucursalId = esSuperAdmin ? dto.SucursalId : User.SucursalId();
+        if (!sucursalId.HasValue)
+            return BadRequest("Debes indicar una sucursal.");
+
+        if (!await _context.Sucursales.AnyAsync(s => s.Id == sucursalId && s.Activa && s.EmpresaId == empresaId))
             return BadRequest("La sucursal indicada no existe o esta inactiva.");
 
         var usuario = new Usuario
@@ -48,7 +57,8 @@ public class AuthController : ControllerBase
             Nombre = dto.Nombre,
             Email = email,
             Rol = dto.Rol,
-            SucursalId = dto.SucursalId
+            EmpresaId = empresaId,
+            SucursalId = sucursalId
         };
         usuario.PasswordHash = _hasher.HashPassword(usuario, dto.Password);
 
@@ -67,10 +77,18 @@ public class AuthController : ControllerBase
         var usuario = await _context.Usuarios.FirstOrDefaultAsync(u => u.Email == email);
 
         if (usuario == null || !usuario.Activo)
-            return Unauthorized("Credenciales invalidas.");
+        {
+            await _auditService.RegistrarAsync("LoginFallido", "Usuario",
+                detalles: $"Usuario inexistente o inactivo: {email}");
+            return Unauthorized("Credenciales invalidas.");  
+        }
 
         if (usuario.BloqueadoHasta.HasValue && usuario.BloqueadoHasta > DateTime.UtcNow)
-            return Unauthorized("Credenciales invalidas.");
+        {
+            await _auditService.RegistrarAsync("LoginFallido", "Usuario", usuario.Id.ToString(),
+                "Intento con la cuenta bloqueada", usuario.Id, usuario.Email);
+            return Unauthorized("Credenciales invalidas."); 
+        }
 
         var resultado = _hasher.VerifyHashedPassword(usuario, usuario.PasswordHash, dto.Password);
 
@@ -91,11 +109,17 @@ public class AuthController : ControllerBase
             var bloqueado = await _context.Usuarios
                 .AnyAsync(u => u.Id == usuario.Id && u.BloqueadoHasta > DateTime.UtcNow);
 
+            await _auditService.RegistrarAsync("LoginFallido", "Usuario", usuario.Id.ToString(),
+                "Contraseña incorrecta", usuario.Id, usuario.Email);
+
             if (bloqueado)
             {
                 await _context.RefreshTokens
                     .Where(r => r.UsuarioId == usuario.Id && r.FechaRenovacion == null)
                     .ExecuteUpdateAsync(s => s.SetProperty(r => r.FechaRenovacion, DateTime.UtcNow));
+
+                await _auditService.RegistrarAsync("CuentaBloqueada", "Usuario", usuario.Id.ToString(),
+                    usuarioId: usuario.Id, email: usuario.Email);
             }
 
             return Unauthorized("Credenciales invalidas.");
@@ -108,6 +132,9 @@ public class AuthController : ControllerBase
                     .SetProperty(u => u.IntentosFallidos, 0)
                     .SetProperty(u => u.BloqueadoHasta, (DateTime?)null));
         }
+
+        await _auditService.RegistrarAsync("LoginCorrecto", "Usuario", usuario.Id.ToString(),
+            usuarioId: usuario.Id, email: usuario.Email);
 
         return Ok(await EmitirTokenAsync(usuario));
     }
@@ -133,6 +160,10 @@ public class AuthController : ControllerBase
                 r.FechaRenovacion = DateTime.UtcNow;
 
             await _context.SaveChangesAsync();
+            await _auditService.RegistrarAsync("RefreshTokenReutilizado", "Usuario",
+                guardado.UsuarioId.ToString(),
+                "Se reutilizo un refresh token revocado; se cerraron todas las sesiones",
+                guardado.UsuarioId, guardado.Usuario.Email);
             return Unauthorized("Refresh token invalido.");
         }
 

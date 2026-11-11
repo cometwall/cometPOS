@@ -14,6 +14,8 @@ namespace cometPOS.Models
         [Required]
         public string Rol { get; set; } = "Cajero"; // Cajero, Administrador, Gerente, etc.
         
+        public int EmpresaId { get; set; }
+        public Empresa Empresa { get; set; } = null!;
         public int? SucursalId { get; set; }
         public Sucursal? Sucursal { get; set; }
         public bool Activo { get; set; } = true;

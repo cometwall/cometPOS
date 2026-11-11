@@ -9,14 +9,15 @@ using cometPOS.Models;
 using System.Linq.Expressions;
 using Microsoft.AspNetCore.Identity;
 using System.Security.Claims;
+using cometPOS.Services;
 
 namespace cometPOS.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize(Roles = "Admin")]
-    public class UsuariosController : ControllerBase
-    {
+    [Authorize(Roles = "SuperAdmin,Admin")]
+    public class UsuariosController : ControllerBase    {
+        private readonly IAuditService _auditService;
         private readonly AppDbContext _context;
         private static readonly Expression<Func<Usuario, UsuarioDto>> AUsuarioDto = u => new UsuarioDto
         {
@@ -42,26 +43,47 @@ namespace cometPOS.Controllers
 
         private static readonly string[] RolesValidos = { "Admin", "Cajero" };
 
-        public UsuariosController(AppDbContext context)
+        private int EmpresaId => User.EmpresaId() ?? 0;
+
+        private IQueryable<Usuario> UsuariosGestionables()
+        {
+            var query = _context.Usuarios
+                .Where(u => u.EmpresaId == EmpresaId && u.Rol != UsuarioActualExtensions.SuperAdmin);
+
+            if (User.EsSuperAdmin())
+                return query;
+
+            var sucursalId = User.SucursalId() ?? 0;
+            return query.Where(u => u.SucursalId == sucursalId && u.Rol == "Cajero");
+        }
+
+        public UsuariosController(AppDbContext context, IAuditService auditService)
         {
             _context = context;
+            _auditService = auditService;
         }
 
         [HttpPost("{id}/desbloquear")]
         public async Task<IActionResult> Desbloquear(int id)
         {
-            var filas = await _context.Usuarios
+            var filas = await UsuariosGestionables()
                 .Where(u => u.Id == id)
                 .ExecuteUpdateAsync(s => s
                     .SetProperty(u => u.IntentosFallidos, 0)
                     .SetProperty(u => u.BloqueadoHasta, (DateTime?)null));
-            return filas == 0 ? NotFound() : NoContent();
+
+            if (filas == 0)
+                return NotFound();
+
+            await _auditService.RegistrarAsync("Desbloquear", "Usuario", id.ToString());
+
+            return NoContent();
         }
 
         [HttpGet]
         public async Task<ActionResult<IEnumerable<UsuarioDto>>> Listar([FromQuery] bool incluirInactivos = false)
         {
-            var query = _context.Usuarios.AsQueryable();
+            var query = UsuariosGestionables();
 
             if (!incluirInactivos)
                 query = query.Where(u => u.Activo);
@@ -76,7 +98,7 @@ namespace cometPOS.Controllers
         [HttpGet("{id}")]
         public async Task<ActionResult<UsuarioDto>> ObtenerPorId(int id)
         {
-            var usuario = await _context.Usuarios
+            var usuario = await UsuariosGestionables()
                 .Where(u => u.Id == id)
                 .Select(AUsuarioDto)
                 .FirstOrDefaultAsync();
@@ -86,24 +108,27 @@ namespace cometPOS.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> Actualizar(int id, ActualizarUsuarioDto dto)
         {
-            if (!RolesValidos.Contains(dto.Rol))
-                return BadRequest($"Rol invalido. Valores permitidos: {string.Join(",", RolesValidos)}.");
+            var esSuperAdmin = User.EsSuperAdmin();
+            var rolesPermitidos = esSuperAdmin ? RolesValidos : new[] { "Cajero" };
 
-            if (dto.SucursalId.HasValue &&
-                !await _context.Sucursales.AnyAsync(s => s.Id == dto.SucursalId && s.Activa))
+            if (!rolesPermitidos.Contains(dto.Rol))
+                return BadRequest($"Rol invalido. Valores permitidos: {string.Join(",", rolesPermitidos)}.");
+
+            var sucursalId = esSuperAdmin ? dto.SucursalId : User.SucursalId();
+            if (!sucursalId.HasValue)
+                return BadRequest("Debes indicar una sucursal.");
+
+            if (!await _context.Sucursales.AnyAsync(s => s.Id == sucursalId && s.Activa && s.EmpresaId == EmpresaId))
                 return BadRequest("La sucursal indicada no existe o esta inactiva.");
 
-            var usuario = await _context.Usuarios.FindAsync(id);
+            var usuario = await UsuariosGestionables().FirstOrDefaultAsync(u => u.Id == id);
 
             if (usuario == null)
                 return NotFound();
 
-            if (usuario.Rol == "Admin" && dto.Rol != "Admin" && await EsUltimoAdminActivoAsync(id))
-                return Conflict("No se puede cambiar el rol Admin al ultimo administrador activo.");
-
             usuario.Nombre = dto.Nombre;
             usuario.Rol = dto.Rol;
-            usuario.SucursalId = dto.SucursalId;
+            usuario.SucursalId = sucursalId;
 
             await _context.SaveChangesAsync();
             return NoContent();
@@ -114,9 +139,7 @@ namespace cometPOS.Controllers
         {
             if (UsuarioActualId() == id)
                 return Conflict("No puedes desactivar tu propia cuenta.");
-            if (await EsUltimoAdminActivoAsync(id))
-                return Conflict("No se puede desactivar al ultimo administrador activo.");
-            var usuario = await _context.Usuarios.FindAsync(id);
+            var usuario = await UsuariosGestionables().FirstOrDefaultAsync(u => u.Id == id);
             if (usuario == null)
                 return NotFound();
 
@@ -130,9 +153,11 @@ namespace cometPOS.Controllers
         [HttpPost("{id}/activar")]
         public async Task<IActionResult> Activar(int id)
         {
-            var filas = await _context.Usuarios
+            var filas = await UsuariosGestionables()
                 .Where(u => u.Id == id)
                 .ExecuteUpdateAsync(s => s.SetProperty(u => u.Activo, true));
+
+            await _auditService.RegistrarAsync("Activar", "Usuario", id.ToString());
 
             return filas == 0 ? NotFound() : NoContent();
         }
@@ -140,7 +165,7 @@ namespace cometPOS.Controllers
         [HttpPost("{id}/resetear-password")]
         public async Task<IActionResult> ResetearPassword(int id, ResetearPasswordDto dto)
         {
-            var usuario = await _context.Usuarios.FindAsync(id);
+            var usuario = await UsuariosGestionables().FirstOrDefaultAsync(u => u.Id == id);
             if (usuario == null)
                 return NotFound();
 
@@ -152,19 +177,6 @@ namespace cometPOS.Controllers
             await RevocarRefreshTokensAsync(id);
 
             return NoContent();
-        }
-
-        private async Task<bool> EsUltimoAdminActivoAsync(int usuarioId)
-        {
-            var esAdminActivo = await _context.Usuarios.AnyAsync(u => u.Id == usuarioId && u.Rol == "Admin" && u.Activo);
-
-            if (!esAdminActivo)
-                return false;
-
-            var otrosAdmin = await _context.Usuarios
-                .CountAsync(u => u.Id != usuarioId && u.Rol == "Admin" && u.Activo);
-
-            return otrosAdmin == 0;
         }
     }
 }

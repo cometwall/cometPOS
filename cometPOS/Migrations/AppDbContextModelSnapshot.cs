@@ -22,6 +22,86 @@ namespace cometPOS.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("cometPOS.Models.AuditLog", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Accion")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Detalles")
+                        .HasColumnType("jsonb");
+
+                    b.Property<int?>("EmpresaId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Entidad")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("EntidadId")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("FechaUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Ip")
+                        .HasColumnType("text");
+
+                    b.Property<string>("UsuarioEmail")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("UsuarioId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmpresaId");
+
+                    b.HasIndex("FechaUtc");
+
+                    b.HasIndex("UsuarioId");
+
+                    b.HasIndex("Entidad", "EntidadId");
+
+                    b.ToTable("AuditLogs");
+                });
+
+            modelBuilder.Entity("cometPOS.Models.Empresa", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Activa")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("FechaCreacion")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Identificador")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Identificador")
+                        .IsUnique();
+
+                    b.ToTable("Empresas");
+                });
+
             modelBuilder.Entity("cometPOS.Models.RefreshToken", b =>
                 {
                     b.Property<int>("Id")
@@ -78,6 +158,9 @@ namespace cometPOS.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<int>("EmpresaId")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime>("FechaCreacion")
                         .HasColumnType("timestamp with time zone");
 
@@ -92,6 +175,8 @@ namespace cometPOS.Migrations
 
                     b.HasIndex("Codigo")
                         .IsUnique();
+
+                    b.HasIndex("EmpresaId");
 
                     b.ToTable("Sucursales");
                 });
@@ -113,6 +198,9 @@ namespace cometPOS.Migrations
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<int>("EmpresaId")
+                        .HasColumnType("integer");
 
                     b.Property<DateTime>("FechaCreacion")
                         .HasColumnType("timestamp with time zone");
@@ -140,6 +228,8 @@ namespace cometPOS.Migrations
                     b.HasIndex("Email")
                         .IsUnique();
 
+                    b.HasIndex("EmpresaId");
+
                     b.HasIndex("SucursalId");
 
                     b.ToTable("Usuarios");
@@ -156,13 +246,39 @@ namespace cometPOS.Migrations
                     b.Navigation("Usuario");
                 });
 
+            modelBuilder.Entity("cometPOS.Models.Sucursal", b =>
+                {
+                    b.HasOne("cometPOS.Models.Empresa", "Empresa")
+                        .WithMany("Sucursales")
+                        .HasForeignKey("EmpresaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Empresa");
+                });
+
             modelBuilder.Entity("cometPOS.Models.Usuario", b =>
                 {
+                    b.HasOne("cometPOS.Models.Empresa", "Empresa")
+                        .WithMany("Usuarios")
+                        .HasForeignKey("EmpresaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("cometPOS.Models.Sucursal", "Sucursal")
                         .WithMany()
                         .HasForeignKey("SucursalId");
 
+                    b.Navigation("Empresa");
+
                     b.Navigation("Sucursal");
+                });
+
+            modelBuilder.Entity("cometPOS.Models.Empresa", b =>
+                {
+                    b.Navigation("Sucursales");
+
+                    b.Navigation("Usuarios");
                 });
 #pragma warning restore 612, 618
         }

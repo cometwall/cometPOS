@@ -5,6 +5,8 @@ namespace cometPOS.Models
     public class Sucursal
     {
         public int Id { get; set; }
+        public int EmpresaId { get; set; }
+        public Empresa Empresa { get; set; } = null!;
         [Required]
         public string Nombre { get; set; } = string.Empty;
         [Required]

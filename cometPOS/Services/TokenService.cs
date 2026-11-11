@@ -27,6 +27,8 @@ namespace cometPOS.Services
                 new(ClaimTypes.Role, usuario.Rol)
             };
 
+            claims.Add(new Claim("EmpresaId", usuario.EmpresaId.ToString()));
+
             if (usuario.SucursalId.HasValue)
                 claims.Add(new Claim("SucursalId", usuario.SucursalId.Value.ToString()));
 
