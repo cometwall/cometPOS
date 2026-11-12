@@ -136,14 +136,19 @@ public class AuthController : ControllerBase
         await _auditService.RegistrarAsync("LoginCorrecto", "Usuario", usuario.Id.ToString(),
             usuarioId: usuario.Id, email: usuario.Email);
 
-        return Ok(await EmitirTokenAsync(usuario));
+        var (respuesta2, _) = await EmitirTokenAsync(usuario);
+        return Ok(respuesta2);
     }
 
     [EnableRateLimiting("refresh")]
     [HttpPost("refresh")]
-    public async Task<ActionResult<AuthRespuestaDto>> Refresh(RefreshTokenDto dto)
+    public async Task<ActionResult<AuthRespuestaDto>> Refresh()
     {
-        var hash = _tokenService.HashearToken(dto.RefreshToken);
+        var refreshCookie = Request.Cookies[RefreshCookie];
+        if (string.IsNullOrEmpty(refreshCookie))
+            return Unauthorized("Refresh token invalido.");
+
+        var hash = _tokenService.HashearToken(refreshCookie);
         var guardado = await _context.RefreshTokens
             .Include(r => r.Usuario)
             .FirstOrDefaultAsync(r => r.TokenHash == hash);
@@ -170,28 +175,35 @@ public class AuthController : ControllerBase
         if (guardado.FechaExpiracion <= DateTime.UtcNow || !guardado.Usuario.Activo)
             return Unauthorized("Refresh token invalido.");
 
-        var respuesta = await EmitirTokenAsync(guardado.Usuario);
+        var (respuesta, nuevoHash) = await EmitirTokenAsync(guardado.Usuario);
 
         guardado.FechaRenovacion = DateTime.UtcNow;
-        guardado.ReemplazadoPorHash = _tokenService.HashearToken(respuesta.RefreshToken);
+        guardado.ReemplazadoPorHash = nuevoHash;
         await _context.SaveChangesAsync();
 
         return Ok(respuesta);
     }
 
     [HttpPost("logout")]
-    public async Task<IActionResult> Logout(RefreshTokenDto dto)
+    public async Task<IActionResult> Logout()
     {
-        var hash = _tokenService.HashearToken(dto.RefreshToken);
-
-        var guardado = await _context.RefreshTokens
-            .FirstOrDefaultAsync(r => r.TokenHash == hash && r.FechaRenovacion == null);
-
-        if (guardado != null)
+        var refreshCookie = Request.Cookies[RefreshCookie];
+        if (!string.IsNullOrEmpty(refreshCookie))
         {
-            guardado.FechaRenovacion = DateTime.UtcNow;
-            await _context.SaveChangesAsync();
+            var hash = _tokenService.HashearToken(refreshCookie);
+
+            var guardado = await _context.RefreshTokens
+                .FirstOrDefaultAsync(r => r.TokenHash == hash && r.FechaRenovacion == null);
+
+            if (guardado != null)
+            {
+                guardado.FechaRenovacion = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+            }
         }
+
+        Response.Cookies.Delete(AccessCookie, OpcionesCookie("/"));
+        Response.Cookies.Delete(RefreshCookie, OpcionesCookie(RefreshPath));
         return NoContent();
     }
 
@@ -225,7 +237,20 @@ public class AuthController : ControllerBase
         return NoContent();
     }
 
-    private async Task<AuthRespuestaDto> EmitirTokenAsync(Usuario usuario)
+    private const string AccessCookie = "access_token";
+    private const string RefreshCookie = "refresh_token";
+    private const string RefreshPath = "/api/auth";
+
+    private static CookieOptions OpcionesCookie(string path, DateTime? expira = null) => new()
+    {
+        HttpOnly = true,
+        Secure = true,
+        SameSite = SameSiteMode.Strict,
+        Path = path,
+        Expires = expira
+    };
+
+    private async Task<(AuthRespuestaDto Respuesta, string RefreshHash)> EmitirTokenAsync(Usuario usuario)
     {
         var (refresh, hash, expira) = _tokenService.GenerarRefreshToken();
 
@@ -237,13 +262,16 @@ public class AuthController : ControllerBase
         });
         await _context.SaveChangesAsync();
 
-        return new AuthRespuestaDto
+        var minutos = _config.GetValue("Jwt:ExpireMinutes", 60);
+        Response.Cookies.Append(AccessCookie, _tokenService.GenerarToken(usuario),
+            OpcionesCookie("/", DateTime.UtcNow.AddMinutes(minutos)));
+        Response.Cookies.Append(RefreshCookie, refresh, OpcionesCookie(RefreshPath, expira));
+
+        return (new AuthRespuestaDto
         {
-            Token = _tokenService.GenerarToken(usuario),
-            RefreshToken = refresh,
             Nombre = usuario.Nombre,
             Rol = usuario.Rol,
             SucursalId = usuario.SucursalId
-        };
+        }, hash);
     }
 }
