@@ -6,7 +6,6 @@ using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.HttpOverrides;
 using System.Net;
-using Microsoft.AspNetCore.HttpOverrides;
 
 using cometPOS.Data;
 using cometPOS.Services;

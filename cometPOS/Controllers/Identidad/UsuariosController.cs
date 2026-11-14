@@ -6,7 +6,6 @@ using cometPOS.Data;
 using cometPOS.DTOs;
 using System.Linq.Expressions;
 using cometPOS.Models;
-using System.Linq.Expressions;
 using Microsoft.AspNetCore.Identity;
 using System.Security.Claims;
 using cometPOS.Services;
