@@ -44,8 +44,27 @@ cometPOS/
 
 ## Requisitos
 
-- [.NET 10 SDK](https://dotnet.microsoft.com/download)
-- [PostgreSQL](https://www.postgresql.org/download/) (el proyecto usa `Npgsql.EntityFrameworkCore.PostgreSQL`)
+- [.NET 10 SDK](https://dotnet.microsoft.com/download) — se desarrolló y probó con el SDK `10.0.402` (`dotnet --version`). El proyecto no fija un `global.json`, por lo que cualquier SDK `10.0.x` compatible con `net10.0` debería funcionar.
+- [PostgreSQL](https://www.postgresql.org/download/) — sin versión mínima fijada explícitamente; se recomienda una versión compatible con Npgsql 10.x (PostgreSQL 13 o superior).
+
+### Paquetes NuGet principales
+
+| Paquete | Versión | Uso |
+|---|---|---|
+| `Microsoft.AspNetCore.Authentication.JwtBearer` | 10.0.14 | Validación de JWT (lectura desde cookie `access_token`) |
+| `Microsoft.AspNetCore.OpenApi` | 10.0.14 | Documento OpenAPI (`/openapi/v1.json`) en desarrollo |
+| `Microsoft.EntityFrameworkCore.Design` | 10.0.14 | Soporte de diseño para migraciones (`dotnet ef`) |
+| `Microsoft.EntityFrameworkCore.Tools` | 10.0.14 | CLI de EF Core (`dotnet ef migrations`, `dotnet ef database update`) |
+| `Npgsql.EntityFrameworkCore.PostgreSQL` | 10.0.3 | Proveedor de EF Core para PostgreSQL |
+
+Estas versiones están fijadas en `cometPOS/cometPOS.csproj`; es la fuente de verdad si se actualizan paquetes — actualiza esta tabla cuando cambien.
+
+Para instalar la herramienta global de EF Core (si no la tienes) usa la versión acorde al proyecto:
+```bash
+dotnet tool install --global dotnet-ef --version 10.0.14
+# o si ya está instalada:
+dotnet tool update --global dotnet-ef --version 10.0.14
+```
 
 ## Configuración
 
@@ -61,6 +80,8 @@ cometPOS/
    dotnet user-secrets set "Jwt:Key" "<clave-secreta-larga>"
    dotnet user-secrets set "Jwt:Issuer" "cometPOS"
    dotnet user-secrets set "Jwt:Audience" "cometPOS"
+   dotner user-secrets set "Jwt:ExpireMinutes": "30",
+   dotner user-secrets set "Jwt:RefreshExpireDays": "7" 
    ```
 3. Configura los orígenes permitidos para CORS (requerido, ya que se envían credenciales/cookies) en `appsettings.json` o `appsettings.Development.json`:
    ```json
