@@ -237,7 +237,7 @@ namespace cometPOS.Data
                     .WithMany()
                     .HasForeignKey(ip => ip.UnidadId)
                     .OnDelete(DeleteBehavior.Restrict);
-                e.HasIndex(ip => ip.Codigo);
+                e.HasIndex(ip => new { ip.EmpresaId, ip.Codigo }).IsUnique();
             });
 
             modelBuilder.Entity<ProductoUnidad>(e =>
