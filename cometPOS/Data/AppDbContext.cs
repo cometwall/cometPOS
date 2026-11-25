@@ -277,11 +277,14 @@ namespace cometPOS.Data
             });
 
             // ----- Trazabilidad -----
-            modelBuilder.Entity<ProductoLote>()
-                .HasOne(l => l.Variante)
-                .WithMany()
-                .HasForeignKey(l => l.VarianteId)
-                .OnDelete(DeleteBehavior.Restrict);
+            modelBuilder.Entity<ProductoLote>(e =>
+            {
+                e.HasOne(l => l.Variante)
+                    .WithMany()
+                    .HasForeignKey(l => l.VarianteId)
+                    .OnDelete(DeleteBehavior.Restrict);
+                e.HasIndex(l => new { l.VarianteId, l.NumeroLote }).IsUnique();
+            });
 
             modelBuilder.Entity<InventarioLote>(e =>
             {
@@ -314,7 +317,7 @@ namespace cometPOS.Data
                     .WithMany()
                     .HasForeignKey(s => s.SucursalId)
                     .OnDelete(DeleteBehavior.Restrict);
-                e.HasIndex(s => s.NumeroSerie);
+                e.HasIndex(s => new { s.VarianteId, s.NumeroSerie }).IsUnique();
             });
 
             modelBuilder.Entity<MovimientoInventario>(e =>

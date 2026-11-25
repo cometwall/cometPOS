@@ -89,7 +89,7 @@ namespace cometPOS.Controllers.Inventario
             var variante = await _context.ProductoVariantes.FirstOrDefaultAsync(v => v.Id == dto.VarianteId && v.EmpresaId == EmpresaId);
 
             if (variante == null)
-                return NotFound("La variante del producto no existe");
+                return BadRequest("La variante no existe o no pertenece a tu empresa");
 
             var existe = await _context.SucursalProductos.AnyAsync(p =>
                p.SucursalId == dto.SucursalId &&
