@@ -207,7 +207,7 @@ public class AuthController : ControllerBase
         return NoContent();
     }
 
-    [Authorize]
+    [Authorize(Roles = "SuperAdmin")]
     [EnableRateLimiting("login")]
     [HttpPost("cambiar-password")]
     public async Task<IActionResult> CambiarPassword(CambiarPasswordDto dto)
