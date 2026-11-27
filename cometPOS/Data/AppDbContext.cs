@@ -147,11 +147,14 @@ namespace cometPOS.Data
             });
 
             // ----- Retornables -----
-            modelBuilder.Entity<Retornable>()
-                .HasOne(r => r.Empresa)
-                .WithMany()
-                .HasForeignKey(r => r.EmpresaId)
-                .OnDelete(DeleteBehavior.Restrict);
+            modelBuilder.Entity<Retornable>(e =>
+            {
+                e.HasOne(r => r.Empresa)
+                    .WithMany()
+                    .HasForeignKey(r => r.EmpresaId)
+                    .OnDelete(DeleteBehavior.Restrict);
+                e.HasIndex(r => new { r.EmpresaId, r.Codigo }).IsUnique();
+            });
 
             // ----- Variantes -----
             modelBuilder.Entity<ProductoVariante>(e =>

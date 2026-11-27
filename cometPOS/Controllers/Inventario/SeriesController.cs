@@ -39,8 +39,6 @@ namespace cometPOS.Controllers.Inventario
                     Estado = s.Estado,
                     FechaCreacion = s.FechaCreacion
                 }).ToListAsync();
-            if(series == null || series.Count == 0)
-                return NotFound("No se encontraron series para esta empresa");
 
             return Ok(series);
         }
@@ -49,7 +47,7 @@ namespace cometPOS.Controllers.Inventario
         [Authorize(Roles = "SuperAdmin,Admin")]
         public async Task<ActionResult<SerieDto>> CrearSerie(CrearSerieDto serieDto)
         {
-            if (await _context.ProductoSeries.AnyAsync(s => s.Variante.EmpresaId == EmpresaId && s.NumeroSerie == serieDto.NumeroSerie))
+            if (await _context.ProductoSeries.AnyAsync(s => s.VarianteId == serieDto.VarianteId && s.NumeroSerie == serieDto.NumeroSerie))
                 return Conflict("Ya existe una serie con el mismo número de serie");
 
             var variante = await _context.ProductoVariantes.Include(v => v.Producto)
@@ -61,12 +59,19 @@ namespace cometPOS.Controllers.Inventario
             if (variante.Producto.TipoSeguimiento != "SERIE")
                 return BadRequest("El producto asociado a la variante no tiene seguimiento por serie");
 
+            if (serieDto.LoteId.HasValue &&
+                !await _context.ProductoLotes.AnyAsync( l =>
+                    l.Id == serieDto.LoteId && l.VarianteId == serieDto.VarianteId))
+            {
+                return BadRequest("El lote no existe o no corresponde a esta variante");
+            }
+
             var serie = new ProductoSerie
             {
                 VarianteId = serieDto.VarianteId,
                 NumeroSerie = serieDto.NumeroSerie,
                 LoteId = serieDto.LoteId,
-                SucursalId = User.SucursalId() ?? 0,
+                SucursalId = User.SucursalId(),
                 FechaCreacion = DateTime.UtcNow
             };
 
